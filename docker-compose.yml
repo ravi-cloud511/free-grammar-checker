@@ -1,0 +1,14 @@
+services:
+  languagetool:
+    image: erikvl87/languagetool
+    restart: unless-stopped
+
+  app:
+    image: ghcr.io/ravi-cloud511/free-grammar-checker:latest
+    ports:
+      - "8080:8080"
+    environment:
+      LANGUAGETOOL_URL: http://languagetool:8010
+    depends_on:
+      - languagetool
+    restart: unless-stopped
