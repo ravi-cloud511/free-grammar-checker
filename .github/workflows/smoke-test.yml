@@ -1,0 +1,50 @@
+name: Smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build app image
+        run: docker build -t grammar-app .
+
+      - name: Start LanguageTool and app
+        run: |
+          docker network create t
+          docker run -d --name lt --network t erikvl87/languagetool
+          docker run -d --name app --network t -p 8080:8080 \
+            -e LANGUAGETOOL_URL=http://lt:8010 grammar-app
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 40); do
+            curl -sf http://localhost:8080/health && exit 0
+            sleep 3
+          done
+          docker logs app
+          exit 1
+
+      - name: Test grammar check
+        run: |
+          for i in $(seq 1 60); do
+            RES=$(curl -sf -X POST http://localhost:8080/api/check \
+              -H 'Content-Type: application/json' \
+              -d '{"text":"I has a apple.","lang":"en-US"}') && break
+            sleep 5
+          done
+          echo "$RES"
+          echo "$RES" | jq -e '.issues | length > 0'
+          echo "$RES" | jq -r '.corrected'
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker logs app
+          docker logs lt
