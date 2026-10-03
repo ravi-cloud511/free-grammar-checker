@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Grammar Checker</title>
+<style>
+  :root { --bg:#f6f8fa; --card:#fff; --text:#1f2328; --muted:#656d76; --line:#d0d7de; --brand:#1f6feb; --ok:#1a7f37; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --card:#161b22; --text:#e6edf3; --muted:#8b949e; --line:#30363d; --brand:#58a6ff; --ok:#3fb950; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 14px 40px; }
+  h1 { font-size: 24px; margin: 8px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  textarea { width:100%; min-height:180px; resize:vertical; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); }
+  select, input[type=file] { font-size:15px; color:var(--text); }
+  select { padding:8px; border-radius:8px; border:1px solid var(--line); background:var(--bg); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  button { background:var(--brand); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:16px; font-weight:600; cursor:pointer; }
+  button.alt { background:transparent; color:var(--brand); border:1px solid var(--brand); }
+  button:disabled { opacity:.6; }
+  h2 { font-size:17px; margin:0 0 8px; }
+  #corrected { white-space:pre-wrap; padding:10px; border-radius:8px; background:var(--bg); border:1px solid var(--line); }
+  .issue { padding:8px 0; border-top:1px solid var(--line); font-size:15px; }
+  .issue:first-child { border-top:0; }
+  .bad { color:#d1242f; text-decoration:line-through; }
+  .good { color:var(--ok); font-weight:600; }
+  .msg { color:var(--muted); font-size:13px; }
+  #status { color:var(--muted); margin-top:8px; font-size:14px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>✍️ Free Grammar Checker</h1>
+  <p class="sub">Paste text or upload a file. Mistakes are found and corrected automatically.</p>
+
+  <div class="card">
+    <h2>Check text</h2>
+    <textarea id="text" placeholder="Type or paste your text here..."></textarea>
+    <div class="row">
+      <select id="lang">
+        <option value="en-US">English (US)</option>
+        <option value="en-GB">English (UK)</option>
+        <option value="en-IN">English (India)</option>
+      </select>
+      <button id="checkBtn">Check &amp; Correct</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Upload file (.txt or .docx)</h2>
+    <input type="file" id="file" accept=".txt,.docx">
+    <div class="row">
+      <button class="alt" id="uploadBtn">Correct file &amp; download</button>
+    </div>
+    <div id="fstatus" class="msg"></div>
+  </div>
+
+  <div class="card hidden" id="resultCard">
+    <h2>Corrected text</h2>
+    <div id="corrected"></div>
+    <div class="row"><button class="alt" id="copyBtn">Copy</button></div>
+  </div>
+
+  <div class="card hidden" id="issuesCard">
+    <h2 id="issuesTitle">Changes</h2>
+    <div id="issues"></div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+$('checkBtn').onclick = async () => {
+  const text = $('text').value.trim();
+  if (!text) { $('status').textContent = 'Please enter some text.'; return; }
+  $('checkBtn').disabled = true;
+  $('status').textContent = 'Checking...';
+  try {
+    const res = await fetch('/api/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, lang: $('lang').value })
+    });
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    const data = await res.json();
+    show(data);
+    $('status').textContent = data.issues.length + ' issue(s) found.';
+  } catch (e) {
+    $('status').textContent = 'Something went wrong: ' + e.message;
+  }
+  $('checkBtn').disabled = false;
+};
+
+function show(data) {
+  $('corrected').textContent = data.corrected;
+  $('resultCard').classList.remove('hidden');
+  const box = $('issues');
+  box.innerHTML = '';
+  data.issues.forEach(i => {
+    const d = document.createElement('div');
+    d.className = 'issue';
+    const bad = document.createElement('span');
+    bad.className = 'bad'; bad.textContent = i.original || '(missing)';
+    const good = document.createElement('span');
+    good.className = 'good'; good.textContent = i.suggestion || '(no suggestion)';
+    const m = document.createElement('div');
+    m.className = 'msg'; m.textContent = i.message;
+    d.append(bad, ' → ', good, m);
+    box.appendChild(d);
+  });
+  $('issuesTitle').textContent = 'Changes (' + data.issues.length + ')';
+  $('issuesCard').classList.toggle('hidden', data.issues.length === 0);
+}
+
+$('copyBtn').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('corrected').textContent);
+    $('copyBtn').textContent = 'Copied ✓';
+    setTimeout(() => $('copyBtn').textContent = 'Copy', 1500);
+  } catch (e) { $('copyBtn').textContent = 'Copy failed'; }
+};
+
+$('uploadBtn').onclick = async () => {
+  const f = $('file').files[0];
+  if (!f) { $('fstatus').textContent = 'Please choose a file first.'; return; }
+  $('uploadBtn').disabled = true;
+  $('fstatus').textContent = 'Processing file...';
+  try {
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('lang', $('lang').value);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('Only .txt and .docx are supported (error ' + res.status + ')');
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'corrected-' + f.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    $('fstatus').textContent = 'Done. Corrected file downloaded.';
+  } catch (e) {
+    $('fstatus').textContent = 'Something went wrong: ' + e.message;
+  }
+  $('uploadBtn').disabled = false;
+};
+</script>
+</body>
+</html>
